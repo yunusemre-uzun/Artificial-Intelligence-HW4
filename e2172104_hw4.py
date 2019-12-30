@@ -41,6 +41,20 @@ class Board:
         else:
             return True
 
+    def getRandomStartingPoint(self):
+        while True:
+            x = random.randint(0,self.dimension.x-1)
+            y = random.randint(0,self.dimension.y-1)
+            if(self.board[x][y] == "E"):
+                break
+        return Coordinate(x+1,y+1)
+    
+    def isOnGoalState(self,coordinate):
+        if(self.board[coordinate.x-1][coordinate.y-1] == 'G'):
+            return True
+        else:
+            return False
+
 class ValueIteration:
     def __init__(self,theta,gamma,board,rewards):
         self.position = Coordinate(1,1)
@@ -98,12 +112,10 @@ class ValueIteration:
                 elif(index == 1):
                     key = '2'
                 elif(index == 2):
-                    key = "1"
-                else:
                     key = "3"
+                else:
+                    key = "1"
                 self.output_file.write("{} {} {}\n".format(x,y,key))
-
-            
 
     def findBestState(self,coordinate):
         next_states = [0,0,0,0]
@@ -163,6 +175,31 @@ class ValueIteration:
     def addFile(self,file):
         self.output_file = file
 
+class State:
+    def __init__(self,coordinate):
+        self.coordinate = coordinate
+        self.actions = {'U':0,'D':0,'L':0,'R':0}
+    
+    def updateAction(self,action,value):
+        self.actions[action] = value
+    
+    def getActionValue(self,action):
+        return self.actions[action]
+    
+    def getMaxAction(self):
+        max_value = -999
+        max_action = []
+        for action in self.actions:
+            if self.actions[action] > max_value:
+                max_action = []
+                max_value = self.actions[action]
+                max_action.append(action)
+            elif self.actions[action] == max_value :
+                max_action.append(action)
+        i = random.randint(0,len(max_action)-1)
+        action = max_action[i]
+        return [max_value,action]
+
 class QLearning():
     def __init__(self,number_of_episodes,alpha,gamma,epsilon,board,rewards):
         self.number_of_episodes = number_of_episodes
@@ -171,6 +208,123 @@ class QLearning():
         self.epsilon = epsilon
         self.board = board # Board object
         self.rewards = rewards
+        self.state_action_table = self.createActionTable()
+    
+    def createActionTable(self):
+        state_action_table = []
+        for x in range(self.board.dimension.x):
+            state_action_table.append([])
+            for y in range(self.board.dimension.y):
+                state = State(Coordinate(x+1,y+1))
+                state_action_table[x].append(state)
+        return state_action_table
+    
+    def learn(self):
+        for i in range(self.number_of_episodes):
+            state = self.board.getRandomStartingPoint() # Get the initial state random
+            alpha = 1
+            while True:
+                random_key = random.uniform(0,1)
+                if(random_key<self.epsilon):
+                    #Taking a random action
+                    #0: UP, 1: DOWN, 2:LEFT, 3:RIGHT
+                    random_action = random.randint(0,3)
+                    #print "Taking a random action {}".format(random_action)
+                    next_state = self.applyAction(state,random_action)
+                    self.updateQTable(state,random_action,next_state,alpha)
+                    state = next_state
+                else:
+                    action = self.getActionWithHighestQValue(state)
+                    #print "Taking action {}".format(action)
+                    next_state = self.applyAction(state,action)
+                    self.updateQTable(state,action,next_state,alpha)
+                    state = next_state
+                if(self.board.isOnGoalState(state)):
+                    break
+        return None
+                    
+    
+    def applyAction(self,state,action):
+        if(action==0 or action=='U'):
+            if(state.y == self.board.dimension.y):
+                return state
+            else:
+                return Coordinate(state.x,state.y+1)
+        elif(action==1 or action=='D'):
+            if(state.y == 1):
+                return state
+            else:
+                return Coordinate(state.x,state.y-1)
+        elif(action==2 or action=='L'):
+            if(state.x == 1):
+                return state
+            else:
+                return Coordinate(state.x-1,state.y)
+        else:
+            if(state.x == self.board.dimension.x):
+                return state
+            else:
+                return Coordinate(state.x+1,state.y)
+
+    def updateQTable(self,state,action,next_state,alpha):
+        current_value = self.getStatesValue(state)
+        next_state_value = self.getStatesValue(next_state)
+        reward = self.calculateReward(next_state)
+        calculated_value = current_value + alpha * (reward + self.gamma * next_state_value - current_value)
+        if(action==0): 
+            action = 'U'
+        elif(action==1):
+             action = 'D'
+        elif(action==2):
+             action = 'L'
+        else: 
+            action = 'R'
+        self.state_action_table[state.x-1][state.y-1].updateAction(action,calculated_value)
+        return None
+
+    def getActionWithHighestQValue(self,state):
+        state = self.state_action_table[state.x-1][state.y-1]
+        return state.getMaxAction()[1]
+
+    def getStatesValue(self,state):
+        state = self.state_action_table[state.x-1][state.y-1]
+        return state.getMaxAction()[0]
+    
+    def addFile(self,file):
+        self.output_file = file
+
+    def calculateReward(self,coordinate):
+        if(self.board.getCell(coordinate) == -1):
+            return self.rewards[1]
+        elif(self.board.getCell(coordinate) == "E"):
+            return self.rewards[0]
+        elif(self.board.getCell(coordinate) == "O"):
+            return self.rewards[1]
+        elif(self.board.getCell(coordinate) == "P"):
+            return self.rewards[2]
+        elif(self.board.getCell(coordinate) == "G"):
+            return self.rewards[3]
+    
+    def goObi(self):
+        for x in range(1,self.board.dimension.x + 1):
+            for y in range(1,self.board.dimension.y + 1):
+                index = self.findBestState(Coordinate(x,y))
+                self.output_file.write("{} {} {}\n".format(x,y,index))
+
+    def findBestState(self,coordinate):
+        state = self.state_action_table[coordinate.x-1][coordinate.y-1]
+        action = state.getMaxAction()[1]
+        if(action == 'U'):
+            action = 0
+        elif(action=='D'):
+            action = 2
+        elif(action =='L'):
+            action = 3
+        else:
+            action = 1
+        return action
+
+
 
 def create_learning_object(input_file_name):
     input_file = open(input_file_name,"r")
@@ -261,7 +415,9 @@ def main():
     output_file = open(output_file_name,"w")
     (type_of_object, learning_object) = create_learning_object(input_file_name)
     if(type_of_object):
-        return
+        learning_object.learn()
+        learning_object.addFile(output_file)
+        learning_object.goObi()
     else:
         learning_object.learn()
         learning_object.addFile(output_file)
